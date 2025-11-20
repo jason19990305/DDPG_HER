@@ -151,7 +151,7 @@ class Agent():
                 mb_next_ach_goal = []
                 mb_next_des_goal = []
                 mb_done = []
-                for _ in range(2):
+                for _ in range(8):
                     ep_state = []
                     ep_ach_goal = []
                     ep_des_goal = []
@@ -297,9 +297,14 @@ class Agent():
 
 
         # Update Critic
-        next_action = self.actor_target(minibatch_s_)
-        next_value = self.critic_target(minibatch_s_,next_action)
-        v_target = minibatch_r + self.gamma * next_value * (1 - minibatch_done)
+        with torch.no_grad():
+
+            next_action = self.actor_target(minibatch_s_)
+            next_value = self.critic_target(minibatch_s_,next_action)
+            v_target = minibatch_r + self.gamma * next_value * (1 - minibatch_done)
+            # clip the q value
+            clip_return = 1 / (1 - self.gamma)
+            v_target = torch.clamp(v_target, -clip_return, 0)
 
         value = self.critic(minibatch_s,minibatch_a)
         critic_loss = F.mse_loss(value,v_target)

@@ -15,10 +15,8 @@ warnings.filterwarnings('ignore', category=UserWarning, module='gymnasium.wrappe
 
 class main():
     def __init__(self,args):
-        env_name = 'FetchPush-v4'
-        env = gym.make(env_name)
-
-        
+        env_name = 'FetchSlide-v4'
+        env = gym.make(env_name)        
         
         # args
         args.env_name = env_name
