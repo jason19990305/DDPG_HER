@@ -1,8 +1,8 @@
 # DDPG + HER (Hindsight Experience Replay) Implementation
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
-![PyTorch](https://img.shields.io/badge/PyTorch-2.2.1%2Bcu118-orange)
-![Gymnasium](https://img.shields.io/badge/Gymnasium-0.29.1-green)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.2.1%2Bcu118-orange)](https://pytorch.org/get-started/previous-versions/)
+[![Gymnasium](https://img.shields.io/badge/Gymnasium-0.29.1-green)](https://gymnasium.farama.org/)
 
 This repository contains a clean, modular implementation of **Deep Deterministic Policy Gradient (DDPG)** combined with **Hindsight Experience Replay (HER)** using PyTorch.
 
