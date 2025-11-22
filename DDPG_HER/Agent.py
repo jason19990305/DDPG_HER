@@ -1,4 +1,6 @@
 from torch.distributions import Normal
+from gymnasium.vector import AsyncVectorEnv
+import gymnasium as gym
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import numpy as np 
@@ -30,22 +32,25 @@ class Agent():
         self.tau = args.tau
         self.lr = args.lr
         self.use_normalization = args.normalization
-        self.max_train_steps = args.epochs * args.n_cycles * env._max_episode_steps
+        self.num_rollouts = 2
+        
 
         # Variable
         self.total_steps = 0
         self.training_count = 0
         self.evaluate_count = 0
         warmup_duration = 25000
-
         # other
         self.env = env
         self.action_max = env.action_space.high[0]
         self.replay_buffer = ReplayBuffer(args)
-
-         
+        self.num_envs = os.cpu_count() - 1
+        env_fns = [lambda : gym.make(self.env_name) for _ in range(self.num_envs)]
+        self.venv = AsyncVectorEnv(env_fns , autoreset_mode= gym.vector.AutoresetMode.DISABLED)         
         self.state_normalizer = Normalization(shape=(self.obs_dim), warmup_steps=warmup_duration)
         self.goal_normalizer = Normalization(shape=(self.des_goal_dim), warmup_steps=warmup_duration)
+        self.max_train_steps = args.epochs * args.n_cycles * self.num_envs * env._max_episode_steps
+
         # Actor-Critic
         self.actor = Actor(args,hidden_layer_num_list.copy())
         self.critic = Critic(args,hidden_layer_num_list.copy())
@@ -75,11 +80,12 @@ class Agent():
         s = torch.unsqueeze(state,0)
         with torch.no_grad():
             a = self.actor(s)
+            # Add noise proportional to current variance schedule
             noise = torch.randn_like(a) * self.var    
             a = a + noise
-            a = torch.clamp(a, -self.action_max, self.action_max)                 # 先 clamp 到 [-1,1]
-            
-        return a.cpu().numpy().flatten() 
+            a = torch.clamp(a, -self.action_max, self.action_max)
+            a = a.squeeze(0)
+        return a.cpu().numpy()
 
     def evaluate_action(self,state):
 
@@ -136,7 +142,6 @@ class Agent():
         
     def train(self):
         time_start = time.time()
-        episode_count = 0
         epoch_reward_list = []
         epoch_list = []
         
@@ -151,73 +156,56 @@ class Agent():
                 mb_next_ach_goal = []
                 mb_next_des_goal = []
                 mb_done = []
-                for _ in range(8):
-                    ep_state = []
-                    ep_ach_goal = []
-                    ep_des_goal = []
-                    ep_action = []
-                    ep_reward = []
-                    ep_next_state = []
-                    ep_next_ach_goal = []
-                    ep_next_des_goal = []
-                    ep_done = []
-                    s , _ = self.env.reset()           
+                s , _ = self.venv.reset()           
 
-                    for i in range(self.env._max_episode_steps):
-                        a = self.choose_action(s)
+                for i in range(self.env._max_episode_steps):
+                    a = self.choose_action(s)
+                    s_, r, done , truncated , _ = self.venv.step(a)
 
-                        s_, r, done , truncated , _ = self.env.step(a)
-                        done = done or truncated
-                        
-                        self.replay_buffer.store(s["observation"]
-                                                , s["achieved_goal"]
-                                                , s["desired_goal"] 
-                                                , a
-                                                , [r]
-                                                , s_["observation"]
-                                                , s_["achieved_goal"]
-                                                , s_["desired_goal"]
-                                                , done)
-                        self.total_steps += 1
-                        ep_state.append(s["observation"].copy())
-                        ep_ach_goal.append(s["achieved_goal"].copy())
-                        ep_des_goal.append(s["desired_goal"].copy())
-                        ep_action.append(a.copy())
-                        ep_reward.append(r)
-                        ep_next_state.append(s_["observation"].copy())
-                        ep_next_ach_goal.append(s_["achieved_goal"].copy())
-                        ep_next_des_goal.append(s_["desired_goal"].copy())
-                        ep_done.append(done)
-                        
-                        # update state
-                        s = s_
-                    # end of episode
-                    mb_state.append(ep_state)
-                    mb_ach_goal.append(ep_ach_goal)
-                    mb_des_goal.append(ep_des_goal)
-                    mb_action.append(ep_action)
-                    mb_reward.append(ep_reward)
-                    mb_next_state.append(ep_next_state)
-                    mb_next_ach_goal.append(ep_next_ach_goal)
-                    mb_next_des_goal.append(ep_next_des_goal)
-                    mb_done.append(ep_done)
-                    episode_count += 1
+                    done = np.zeros_like(r)
                     
-                # convert into numpy array
-                mb_state = np.array(mb_state)
-                mb_ach_goal = np.array(mb_ach_goal)
-                mb_des_goal = np.array(mb_des_goal)
-                mb_action = np.array(mb_action)
-                mb_reward = np.array(mb_reward)
-                mb_next_state = np.array(mb_next_state)
-                mb_next_ach_goal = np.array(mb_next_ach_goal)
-                mb_next_des_goal = np.array(mb_next_des_goal)
-                mb_done = np.array(mb_done)
+                    self.total_steps += self.num_envs
+                    mb_state.append(s["observation"].copy())
+                    mb_ach_goal.append(s["achieved_goal"].copy())
+                    mb_des_goal.append(s["desired_goal"].copy())
+                    mb_action.append(a.copy())
+                    mb_reward.append(r)
+                    mb_next_state.append(s_["observation"].copy())
+                    mb_next_ach_goal.append(s_["achieved_goal"].copy())
+                    mb_next_des_goal.append(s_["desired_goal"].copy())
+                    mb_done.append(done)
+                        
+                    # update state
+                    s = s_
+                    
+                # [time steps , episodes , dim] 
+                # swap to [episodes , time steps , dim]
+                mb_state = np.array(mb_state).swapaxes(0, 1)
+                mb_ach_goal = np.array(mb_ach_goal).swapaxes(0, 1)
+                mb_des_goal = np.array(mb_des_goal).swapaxes(0, 1)
+                mb_action = np.array(mb_action).swapaxes(0, 1)
+                mb_reward = np.array(mb_reward).swapaxes(0, 1).reshape(self.num_envs, -1, 1)
+                mb_next_state = np.array(mb_next_state).swapaxes(0, 1)
+                mb_next_des_goal = np.array(mb_next_des_goal).swapaxes(0, 1)
+                mb_next_ach_goal = np.array(mb_next_ach_goal).swapaxes(0, 1)
+                mb_done = np.array(mb_done).swapaxes(0, 1).reshape(self.num_envs, -1, 1)
+
+                    
+                self.replay_buffer.store_batch(mb_state.reshape(-1,self.obs_dim)
+                                            , mb_ach_goal.reshape(-1,self.ach_goal_dim)
+                                            , mb_des_goal.reshape(-1,self.des_goal_dim)
+                                            , mb_action.reshape(-1,self.action_dim)
+                                            , mb_reward.reshape(-1,1)
+                                            , mb_next_state.reshape(-1,self.obs_dim)
+                                            , mb_next_ach_goal.reshape(-1,self.ach_goal_dim)
+                                            , mb_next_des_goal.reshape(-1,self.des_goal_dim)
+                                            , mb_done.reshape(-1,1))       
+
                 self.her_sample(mb_state, mb_action, mb_next_state, mb_ach_goal, mb_des_goal, mb_next_ach_goal, mb_next_des_goal)
                 self.update_normalizer(mb_state, mb_des_goal)
                 for _ in range(self.n_batch):
                     self.update()
-                self.var_decay(total_steps=self.total_steps)
+                self.var_decay(total_steps=self.total_steps)  # Enable noise decay
                 # Update target networks
                 self.soft_update(self.critic_target,self.critic, self.tau)
                 self.soft_update(self.actor_target, self.actor, self.tau)   
@@ -248,28 +236,41 @@ class Agent():
         plt.close()
         
     def her_sample(self, mb_state, mb_action, mb_next_state, mb_ach_goal, mb_des_goal, mb_next_ach_goal, mb_next_des_goal):
-        T = mb_state.shape[1]
-        rollout_batch_size = mb_state.shape[0]
-        k = 4  
-        for i in range(rollout_batch_size):
-            for t in range(T - 1):
-                future_indices = np.random.choice(range(t + 1, T), size=min(k, T - t - 1), replace=False)
-                for future_t in future_indices:
-                    new_goal = mb_next_ach_goal[i, future_t]
+        # Vectorized HER sampling
+        num_episode = mb_state.shape[0]
+        num_steps = mb_state.shape[1]
+        k = 4
+        batch_size = num_episode * num_steps * k
+        
+        # Select which rollouts and which timesteps to be used
+        episode_index = np.random.randint(0, num_episode, batch_size)
+        step_index = np.random.randint(num_steps-1, size=batch_size)
+        
+        # Gather data
+        obs = mb_state[episode_index, step_index]
+        actions = mb_action[episode_index, step_index]
+        obs_next = mb_next_state[episode_index, step_index]
+        ag = mb_ach_goal[episode_index, step_index]
+        ag_next = mb_next_ach_goal[episode_index, step_index]
+        
+        # Select future goals
+        # future_offset in [1, num_steps - 1 - t]
+        future_offset = (np.random.uniform(size=batch_size) * (num_steps - 1 - step_index)).astype(int) + 1
+        future_t = step_index + future_offset
+        
+        new_goals = mb_next_ach_goal[episode_index, future_t]
+        
+        # Compute rewards
+        new_rewards = self.env.unwrapped.compute_reward(ag_next, new_goals, None)
+        new_rewards = np.expand_dims(new_rewards, 1)
+        
 
-                    new_reward = self.env.unwrapped.compute_reward(mb_next_ach_goal[i, t], new_goal, info=None)
-                    self.replay_buffer.store(
-                        mb_state[i, t],
-                        mb_ach_goal[i, t],
-                        new_goal, 
-                        mb_action[i, t],
-                        [new_reward],
-                        mb_next_state[i, t],
-                        mb_next_ach_goal[i, t],
-                        new_goal,
-                        False
-                    )
-
+        # Store in replay buffer
+        dones = np.zeros((batch_size, 1), dtype=np.float32)
+        
+        self.replay_buffer.store_batch(obs, ag, new_goals, actions, new_rewards, obs_next, ag_next, new_goals, dones)
+        #for i in range(batch_size):
+        #    self.replay_buffer.store(obs[i], ag[i], new_goals[i], actions[i], new_rewards[i], obs_next[i], ag_next[i], new_goals[i], dones[i])
 
     def update(self):
         # Get training data .type is tensor
@@ -301,7 +302,7 @@ class Agent():
 
             next_action = self.actor_target(minibatch_s_)
             next_value = self.critic_target(minibatch_s_,next_action)
-            v_target = minibatch_r + self.gamma * next_value * (1 - minibatch_done)
+            v_target = minibatch_r + self.gamma * next_value 
             # clip the q value
             clip_return = 1 / (1 - self.gamma)
             v_target = torch.clamp(v_target, -clip_return, 0)

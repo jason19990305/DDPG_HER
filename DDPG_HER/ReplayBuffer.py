@@ -37,6 +37,32 @@ class ReplayBuffer:
 
         self.ptr = (self.ptr + 1) % self.max_length
         self.size = min(self.size + 1, self.max_length)
+
+    def store_batch(self, obs, ach_goal, des_goal, a, r, next_obs, next_ach_goal, next_des_goal, done):
+        """Store a batch of transitions into replay buffer"""
+        batch_size = len(obs)
+        
+        # Ensure r and done have the correct shape (n, 1)
+        if r.ndim == 1:
+            r = r.reshape(-1, 1)
+        if done.ndim == 1:
+            done = done.reshape(-1, 1)
+        
+        indices = np.arange(self.ptr, self.ptr + batch_size) % self.max_length
+        
+        self.obs[indices] = obs
+        self.ach_goal[indices] = ach_goal
+        self.des_goal[indices] = des_goal
+        self.a[indices] = a
+        self.r[indices] = r
+        self.next_obs[indices] = next_obs
+        self.next_ach_goal[indices] = next_ach_goal
+        self.next_des_goal[indices] = next_des_goal
+        self.done[indices] = done
+        
+        self.ptr = (self.ptr + batch_size) % self.max_length
+        self.size = min(self.size + batch_size, self.max_length)
+  
   
     def sample_minibatch(self, state_normalizer, goal_normalizer):
         """Sample a minibatch and return as torch tensors"""
