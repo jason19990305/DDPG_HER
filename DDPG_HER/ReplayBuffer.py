@@ -1,7 +1,6 @@
 import numpy as np 
 import torch
-
-
+from DDPG_HER.Normalization import Normalization
 
 
 class ReplayBuffer:
@@ -9,6 +8,7 @@ class ReplayBuffer:
         self.batch_size = args.batch_size
         self.max_length = args.buffer_size
         self.normalization = args.normalization
+        self.clip_range = args.clip_range
         self.size = 0       
         self.ptr = 0 
         
@@ -64,18 +64,18 @@ class ReplayBuffer:
         self.size = min(self.size + batch_size, self.max_length)
   
   
-    def sample_minibatch(self, state_normalizer, goal_normalizer):
+    def sample_minibatch(self, state_normalizer : Normalization, goal_normalizer:Normalization):
         """Sample a minibatch and return as torch tensors"""
         index = np.random.randint(0, self.size, self.batch_size)
         
         # Apply normalization if normalizers are provided
         if self.normalization:
-            obs = torch.from_numpy(state_normalizer(self.obs[index])).float()
-            ach_goal = torch.from_numpy(goal_normalizer(self.ach_goal[index])).float()
-            des_goal = torch.from_numpy(goal_normalizer(self.des_goal[index])).float()
-            next_obs = torch.from_numpy(state_normalizer(self.next_obs[index])).float()
-            next_ach_goal = torch.from_numpy(goal_normalizer(self.next_ach_goal[index])).float()
-            next_des_goal = torch.from_numpy(goal_normalizer(self.next_des_goal[index])).float()
+            obs = torch.from_numpy(state_normalizer(self.obs[index], clip_range=self.clip_range)).float()
+            ach_goal = torch.from_numpy(goal_normalizer(self.ach_goal[index], clip_range=self.clip_range)).float()
+            des_goal = torch.from_numpy(goal_normalizer(self.des_goal[index], clip_range=self.clip_range)).float()
+            next_obs = torch.from_numpy(state_normalizer(self.next_obs[index], clip_range=self.clip_range)).float()
+            next_ach_goal = torch.from_numpy(goal_normalizer(self.next_ach_goal[index], clip_range=self.clip_range)).float()
+            next_des_goal = torch.from_numpy(goal_normalizer(self.next_des_goal[index], clip_range=self.clip_range)).float()
         else:
             # No normalization
             obs = torch.from_numpy(self.obs[index]).float()
