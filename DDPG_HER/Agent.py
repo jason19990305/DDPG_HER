@@ -45,8 +45,8 @@ class Agent():
         # Variable
         self.total_steps = 0
         self.training_count = 0
-        self.evaluate_count = 0
-        warmup_duration = 50000  # Number of steps for warm-up in normalizer
+        self.evaluate_count = 0 
+        warmup_duration = 0  # 增加預熱步數以獲得更穩定的統計數據
         # other
         self.env = env
         self.action_max = env.action_space.high[0]
@@ -85,14 +85,29 @@ class Agent():
         state = np.concatenate([observation,desired_goal,achieved_goal],axis=-1)        
         state = torch.tensor(state, dtype=torch.float, device=self.device)
         s = torch.unsqueeze(state,0)
+        
+        # 1. Get deterministic action
         with torch.no_grad():
-            a = self.actor(s)
-            # Add noise proportional to current variance schedule
-            noise = torch.randn_like(a) * self.var    
-            a = a + noise
-            a = torch.clamp(a, -self.action_max, self.action_max)
-            a = a.squeeze(0)
-        return a.cpu().numpy()
+            action = self.actor(s).cpu().numpy().squeeze()
+            
+        # 2. Add Gaussian noise
+        # action += self.args.noise_eps * self.env_params['action_max'] * np.random.randn(*action.shape)
+        # Adapted: self.var corresponds to noise_eps
+        action += self.var * self.action_max * np.random.randn(*action.shape)
+        
+        # 3. Clip action
+        action = np.clip(action, -self.action_max, self.action_max)
+        
+        # 4. Random actions (Epsilon-Greedy)
+        random_actions = np.random.uniform(low=-self.action_max, high=self.action_max, size=self.action_dim)
+        
+        # 5. Choose if use the random actions
+        # action += np.random.binomial(1, self.args.random_eps, 1)[0] * (random_actions - action)
+        # Adapted: random_eps = 0.3
+        random_eps = 0.3
+        action += np.random.binomial(1, random_eps, 1)[0] * (random_actions - action)
+        
+        return action
 
     def evaluate_action(self,state):
 
@@ -120,7 +135,7 @@ class Agent():
             s, info = env.reset()
             
             done = False
-            while True:
+            for _ in range(self.env._max_episode_steps):
                 a = self.evaluate_action(s)
                 s_, r, done, truncted, _ = env.step(a)
                 
@@ -130,8 +145,6 @@ class Agent():
                 
                 s = s_
                 
-                if done or truncted:
-                    break
 
         success_rate = success_count / times * 100
         return success_rate
@@ -140,11 +153,13 @@ class Agent():
         new_var = self.set_var * (1 - total_steps / self.max_train_steps) 
         self.var = max(new_var, 1e-8) # Ensure var is always positive
         
-    def update_normalizer(self, state, goal):
-        """Update normalizers if normalization is enabled"""
+    
+            
+    def update_normalizer(self, state, des_goal, ach_goal):
         if self.use_normalization:
             self.state_normalizer.update(state)
-            self.goal_normalizer.update(goal)
+            self.goal_normalizer.update(des_goal)
+            self.goal_normalizer.update(ach_goal)
         
         
     def train(self):
@@ -208,9 +223,11 @@ class Agent():
                                             , mb_next_ach_goal.reshape(-1,self.ach_goal_dim)
                                             , mb_next_des_goal.reshape(-1,self.des_goal_dim)
                                             , mb_done.reshape(-1,1))       
+                
+                #self.her_sample(mb_state, mb_action, mb_next_state, mb_ach_goal, mb_des_goal, mb_next_ach_goal, mb_next_des_goal)
 
-                self.her_sample(mb_state, mb_action, mb_next_state, mb_ach_goal, mb_des_goal, mb_next_ach_goal, mb_next_des_goal)
-                self.update_normalizer(mb_state, mb_des_goal)
+                self.her_sample_vec(mb_state, mb_action, mb_next_state, mb_ach_goal, mb_des_goal, mb_next_ach_goal, mb_next_des_goal)
+                self.update_normalizer(mb_state, mb_des_goal, mb_ach_goal)
                 for _ in range(self.n_batch):
                     self.update()
                 self.var_decay(total_steps=self.total_steps)  # Enable noise decay
@@ -244,41 +261,76 @@ class Agent():
         plt.close()
         
     def her_sample(self, mb_state, mb_action, mb_next_state, mb_ach_goal, mb_des_goal, mb_next_ach_goal, mb_next_des_goal):
+        # HER sampling with 'future' strategy and k=4
+        k = 4
+        num_episode = mb_state.shape[0]
+        num_steps = mb_state.shape[1]
+
+        for ep in range(num_episode):
+            for t in range(num_steps):
+                # Get original transition data
+                obs = mb_state[ep, t]
+                actions = mb_action[ep, t]
+                obs_next = mb_next_state[ep, t]
+                ag = mb_ach_goal[ep, t]
+                ag_next = mb_next_ach_goal[ep, t]
+
+                # Sample k future indices from the same episode
+                future_indices = np.random.randint(t, num_steps, size=k)
+
+                # Get future achieved goals as new goals
+                future_goals = mb_next_ach_goal[ep, future_indices]
+
+                # Remove debug prints
+                # print(ag_next[np.newaxis, :].shape)
+                # print(future_goals.shape)
+
+                # Iterate through each future goal to compute reward and store transition
+                for i in range(k):
+                    new_goal = future_goals[i]
+                    # Recompute reward for each new goal individually
+                    new_reward = self.env.unwrapped.compute_reward(ag_next, new_goal, None)
+                    done = (new_reward == 0).astype(np.float32)
+                    self.replay_buffer.store(obs, ag, new_goal, actions, new_reward, obs_next, ag_next, new_goal, done)
+                
+    def her_sample_vec(self, mb_state, mb_action, mb_next_state, mb_ach_goal, mb_des_goal, mb_next_ach_goal, mb_next_des_goal):
         # Vectorized HER sampling
+        # This function is designed to be a vectorized equivalent of her_sample.
         num_episode = mb_state.shape[0]
         num_steps = mb_state.shape[1]
         k = 4
-        batch_size = num_episode * num_steps * k
         
-        # Select which rollouts and which timesteps to be used
-        episode_index = np.random.randint(0, num_episode, batch_size)
-        step_index = np.random.randint(num_steps-1, size=batch_size)
-        
-        # Gather data
-        obs = mb_state[episode_index, step_index]
-        actions = mb_action[episode_index, step_index]
-        obs_next = mb_next_state[episode_index, step_index]
-        ag = mb_ach_goal[episode_index, step_index]
-        ag_next = mb_next_ach_goal[episode_index, step_index]
-        
-        # Select future goals
-        # future_offset in [1, num_steps - 1 - t]
-        future_offset = (np.random.uniform(size=batch_size) * (num_steps - 1 - step_index)).astype(int) + 1
-        future_t = step_index + future_offset
-        
-        new_goals = mb_next_ach_goal[episode_index, future_t]
-        
-        # Compute rewards
-        new_rewards = self.env.unwrapped.compute_reward(ag_next, new_goals, None)
-        new_rewards = np.expand_dims(new_rewards, 1)
-        
+        # 1. Create indices for all original transitions
+        # episode_idxs will be [0, 0, ..., 1, 1, ..., num_episode-1, ...]
+        # t_samples will be [0, 1, ..., num_steps-1, 0, 1, ..., num_steps-1, ...]
+        episode_idxs = np.arange(num_episode)
+        t_samples = np.arange(num_steps)
+        episode_idxs, t_samples = np.meshgrid(episode_idxs, t_samples)
+        episode_idxs, t_samples = episode_idxs.flatten(), t_samples.flatten()
 
-        # Store in replay buffer
-        dones = np.zeros((batch_size, 1), dtype=np.float32)
+        # 2. Repeat these indices k times for k HER samples per transition
+        episode_idxs = np.tile(episode_idxs, k)
+        t_samples = np.tile(t_samples, k)
         
+        # 3. Gather original transition data using the created indices
+        obs = mb_state[episode_idxs, t_samples]
+        actions = mb_action[episode_idxs, t_samples]
+        obs_next = mb_next_state[episode_idxs, t_samples]
+        ag = mb_ach_goal[episode_idxs, t_samples]
+        ag_next = mb_next_ach_goal[episode_idxs, t_samples]
+        
+        # 4. Sample future goals, ensuring future_t >= t
+        # This matches the logic of np.random.randint(t, num_steps)
+        future_t = np.random.randint(t_samples, num_steps)
+        new_goals = mb_next_ach_goal[episode_idxs, future_t]
+        
+        # 5. Recompute rewards and done status
+        # Note: This assumes env.compute_reward can handle batched inputs, which is true for gymnasium-robotics
+        new_rewards = self.env.unwrapped.compute_reward(ag_next, new_goals, None)
+        dones = (new_rewards == 0).astype(np.float32)
+        
+        # 6. Store the batch of new HER transitions into the replay buffer
         self.replay_buffer.store_batch(obs, ag, new_goals, actions, new_rewards, obs_next, ag_next, new_goals, dones)
-        #for i in range(batch_size):
-        #    self.replay_buffer.store(obs[i], ag[i], new_goals[i], actions[i], new_rewards[i], obs_next[i], ag_next[i], new_goals[i], dones[i])
 
     def update(self):
         # Get training data .type is tensor
