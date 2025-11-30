@@ -5,6 +5,7 @@
 [![Gymnasium](https://img.shields.io/badge/Gymnasium-0.29.1-green)](https://gymnasium.farama.org/)
 
 My Article : https://hackmd.io/@bGCXESmGSgeAArScMaBxLA/H1thwo4lbx
+
 This repository contains a clean, modular implementation of **Deep Deterministic Policy Gradient (DDPG)** combined with **Hindsight Experience Replay (HER)** using PyTorch.
 
 It is designed to solve sparse-reward robotic control tasks, specifically demonstrating performance on the **Fetch** environments from Gymnasium.
