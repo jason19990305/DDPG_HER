@@ -60,3 +60,22 @@ python FetchPush.py
 - **Plots**: Training curves (Success Rate & Reward) will be saved in the `Plot/` directory.
 - **Videos**: If rendering/recording is enabled in the script, videos will be saved in the `Video/` directory.
 
+**FetchReach** : 
+
+<img width="320" height="240" alt="FetchReach-v4_training_curve" src="https://github.com/user-attachments/assets/61c688c1-1e5e-4328-aeb9-d8d931dda12a" />
+
+**FetchPush** : 
+
+<img width="320" height="240" alt="FetchPush-v4_training_curve" src="https://github.com/user-attachments/assets/8263c9d9-ce29-4d82-bb2d-4e1233b4fb74" />
+
+**FetchPickAndPlace** : 
+
+<img width="320" height="240" alt="FetchPickAndPlace-v4_training_curve" src="https://github.com/user-attachments/assets/c9faa905-9ff7-43d1-aebc-0a793ad00b93" />
+
+**FetchSlide** :
+
+<img width="320" height="240" alt="FetchSlide-v4_training_curve" src="https://github.com/user-attachments/assets/9331d439-2596-4f92-8b2e-5a1e5b08657e" />
+
+
+
+
