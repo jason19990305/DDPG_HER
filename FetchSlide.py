@@ -43,19 +43,20 @@ class main():
         # evaluate 
         render_env = gym.make(env_name, render_mode="rgb_array")  
         render_env = RecordVideo(render_env, video_folder = "Video/"+env_name, episode_trigger=lambda x: True)
-        agent.evaluate_policy(render_env)
+        agent.evaluate_policy(render_env,True)
         render_env.close()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("Hyperparameters Setting for DDPG-HER")
-    parser.add_argument("--lr", type=float, default=0.001, help="Learning rate of actor")
+    parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate of actor")
     parser.add_argument("--var", type=float, default=0.2, help="Normal noise var")
     parser.add_argument("--tau", type=float, default=0.05, help="Parameter for soft update")
     parser.add_argument("--gamma", type=float, default=0.98, help="Discount factor")
     parser.add_argument("--epochs", type=int, default=50, help="Number of epochs")
-    parser.add_argument("--n_cycles", type=int, default=500, help="Number of cycles per epoch")
-    parser.add_argument("--n_batch", type=int, default=40, help="The times of update the network")
+    parser.add_argument("--n_cycles", type=int, default=50, help="Number of cycles per epoch")
+    parser.add_argument("--n_batch", type=int, default=500, help="The times of update the network")
+    parser.add_argument('--clip-range', type=float, default=5, help='the clip range')
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
     parser.add_argument("--buffer_size", type=int, default=int(1e6), help="Learning rate of actor")
     parser.add_argument("--normalization", type=bool, default=True, help="Whether to use normalization")

@@ -138,13 +138,10 @@ class Agent():
             for _ in range(self.env._max_episode_steps):
                 a = self.evaluate_action(s)
                 s_, r, done, truncted, _ = env.step(a)
-                
-                if r == 0:  # Success condition
+                if render == False and r == 0:  # Success condition
                     success_count += 1
                     break
-                
                 s = s_
-                
 
         success_rate = success_count / times * 100
         return success_rate

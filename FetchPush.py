@@ -45,7 +45,7 @@ class main():
         # evaluate 
         render_env = gym.make(env_name, render_mode="rgb_array")  
         render_env = RecordVideo(render_env, video_folder = "Video/"+env_name, episode_trigger=lambda x: True)
-        agent.evaluate_policy(render_env)
+        agent.evaluate_policy(render_env,True)
         render_env.close()
 
 
