@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.2.1%2Bcu118-orange)](https://pytorch.org/get-started/previous-versions/)
 [![Gymnasium](https://img.shields.io/badge/Gymnasium-0.29.1-green)](https://gymnasium.farama.org/)
 
-My Article : https://hackmd.io/@bGCXESmGSgeAArScMaBxLA/H1thwo4lbx
+HackMD Article : https://hackmd.io/@bGCXESmGSgeAArScMaBxLA/H1thwo4lbx
 
 This repository contains a clean, modular implementation of **Deep Deterministic Policy Gradient (DDPG)** combined with **Hindsight Experience Replay (HER)** using PyTorch.
 
